@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+    <title>OURS / Gif — 🛠️ Dashboard</title>
+<base target="_blank">
+</head>
+<body class="bg-dark text-white">
+    <nav class="navbar navbar-dark bg-black py-2 px-4">
+        <a class="navbar-brand fw-bold fs-3" href="index.html">OURS/ Gif</a>
+        <a class="btn btn-outline-info fw-bold" href="index.html">← Back to Home</a>
+    </nav>
+
+    <div class="container py-4" style="max-width:640px;">
+        <h2 class="text-center mb-1">🛠️ Admin Dashboard</h2>
+        <p class="text-center mb-4" style="color:#aaa;">Add GIFs here → they appear on the homepage instantly.</p>
+
+        <div class="creator-panel" style="display:block; max-width:100%;">
+            <div class="mb-2">
+                <label class="form-label">GIF ID (next free number)</label>
+                <input type="number" id="dash-id" class="form-control" placeholder="e.g. 203">
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Category</label>
+                <select id="dash-cat" class="form-control">
+                    <option>sports</option><option>animals</option><option>memes</option>
+                    <option>happy</option><option>sad</option><option>love</option>
+                    <option>anime</option><option>gaming</option><option>music</option>
+                    <option>cartoons</option><option>movies</option><option>nature</option>
+                </select>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Extra tags (comma separated, optional)</label>
+                <input type="text" id="dash-tags" class="form-control" placeholder="funny, cat, celebration">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">GIF image</label>
+                <input type="file" id="dash-file" class="form-control mb-2" accept="image/gif,image/webp,image/png,image/jpeg">
+                <input type="text" id="dash-url" class="form-control" placeholder="...or paste an image URL">
+            </div>
+            <button class="btn btn-primary w-100" onclick="addGif()">➕ Add to Homepage</button>
+            <p id="dash-status" class="text-center mt-2" style="color:#aaa; font-size:14px;"></p>
+        </div>
+
+        <h4 class="mt-4 mb-2">📦 Added GIFs (this browser)</h4>
+        <div id="dash-list"></div>
+    </div>
+
+    <script>
+        /* ===== IndexedDB storage (handles BIG files, unlike localStorage) ===== */
+        const MAX_MB = 20;
+        const idb = {
+            db: null,
+            open() {
+                return new Promise((res, rej) => {
+                    const r = indexedDB.open('oursgif-db', 1);
+                    r.onupgradeneeded = () => r.result.createObjectStore('gifs', { keyPath: 'id' });
+                    r.onsuccess = () => { idb.db = r.result; res(); };
+                    r.onerror = () => rej(r.error);
+                });
+            },
+            all() { return new Promise(res => {
+                const t = idb.db.transaction('gifs').objectStore('gifs').getAll();
+                t.onsuccess = () => res(t.result || []);
+            }); },
+            put(g) { return new Promise(res => {
+                const t = idb.db.transaction('gifs', 'readwrite').objectStore('gifs').put(g);
+                t.onsuccess = res;
+            }); },
+            del(id) { return new Promise(res => {
+                const t = idb.db.transaction('gifs', 'readwrite').objectStore('gifs').delete(id);
+                t.onsuccess = res;
+            }); }
+        };
+
+        // Migrate old localStorage items (if any) into IndexedDB, once
+        async function migrate() {
+            const old = JSON.parse(localStorage.getItem('customGifs') || '[]');
+            for (const g of old) await idb.put(g);
+            if (old.length) localStorage.removeItem('customGifs');
+        }
+
+        async function init() {
+            await idb.open();
+            await migrate();
+            renderList();
+        }
+
+        async function addGif() {
+            const id = document.getElementById('dash-id').value.trim();
+            const cat = document.getElementById('dash-cat').value;
+            const tags = document.getElementById('dash-tags').value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+            const url = document.getElementById('dash-url').value.trim();
+            const file = document.getElementById('dash-file').files[0];
+            const status = document.getElementById('dash-status');
+
+            if (!id) { status.textContent = '❌ Enter an ID.'; return; }
+            if (!url && !file) { status.textContent = '❌ Provide a file or URL.'; return; }
+
+            const save = async (src) => {
+                // Validate the image actually loads before saving
+                const valid = await new Promise(res => {
+                    const test = new Image();
+                    test.onload = () => res(true);
+                    test.onerror = () => res(false);
+                    test.src = src;
+                });
+                if (!valid) {
+                    status.style.color = '#ff5555';
+                    status.textContent = '❌ That image would not load. Use "Copy image address" from the GIF (direct .gif/.webp link), or upload the file.';
+                    return;
+                }
+                await idb.put({ id, cat, tags, src });
+                status.style.color = '#28a745';
+                status.textContent = '✅ Added ID ' + id + ' — check the homepage!';
+                ['dash-id','dash-tags','dash-url','dash-file'].forEach(i => document.getElementById(i).value = '');
+                renderList();
+            };
+
+            if (file) {
+                if (file.size > MAX_MB * 1024 * 1024) {
+                    status.style.color = '#ff5555';
+                    status.textContent = '❌ Too big (max ' + MAX_MB + 'MB). Tip: compress at ezgif.com, or use a URL.';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = e => save(e.target.result);
+                reader.readAsDataURL(file);
+            } else await save(url);
+        }
+
+        async function removeGif(id) {
+            await idb.del(id);
+            renderList();
+        }
+
+        async function renderList() {
+            const gifs = await idb.all();
+            document.getElementById('dash-list').innerHTML = gifs.length ? gifs.map(g => `
+                <div class="d-flex align-items-center gap-3 mb-2 p-2" style="background:#16181d; border-radius:8px;">
+                    <img src="${g.src}" style="height:48px; width:64px; object-fit:cover; border-radius:6px;">
+                    <div style="flex:1;"><b>ID: ${g.id}</b> · ${g.cat} ${g.tags && g.tags.length ? '· ' + g.tags.join(', ') : ''}</div>
+                    <button class="btn btn-sm btn-danger" onclick="removeGif('${g.id}')">🗑️</button>
+                </div>`).join('')
+                : '<p style="color:#666;">No custom GIFs yet — add one above!</p>';
+        }
+        init();
+    </script>
+</body>
+</html>
