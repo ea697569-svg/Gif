@@ -163,7 +163,7 @@ function closeTheater() {
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTheater(); });
 
-async function copyTheaterGif() {
+async function copyTheaterGif(event, id) {
   if (!theaterCard) return;
   const img = theaterCard.querySelector('.media-item');
   await copyImageOrLink(img.src, '✅ Image copied!', '🔗 Link copied!');
